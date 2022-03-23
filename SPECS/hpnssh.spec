@@ -46,12 +46,11 @@ Summary: An open source implementation of SSH protocol version 2 with HPN extens
 Name: hpnssh
 Version: %{hpnssh_ver}
 Release: %{hpnssh_rel}%{?dist}
-URL: http://www.openssh.com/portable.html
-#URL1: https://github.com/jbeverly/pam_ssh_agent_auth/
-Source0: hpnssh-%{version}.tar.gz
-Source1: hpnssh-%{version}.tar.gz.asc
+URL:  https://github.com/rapier1/openssh-portable
+Source0: https://github.com/rapier1/hpnssh-fedora/blob/main/SOURCES/hpnssh-%{version}.tar.gz
+Source1: https://github.com/rapier1/hpnssh-fedora/blob/main/SOURCES/hpnssh-%{version}.tar.gz.asc
 Source2: hpnsshd.pam
-Source3: CJR-GPG-KEY.gpg
+Source3: https://github.com/rapier1/hpnssh-fedora/blob/main/SOURCES/CJR-GPG-KEY.gpg
 Source4: hpnssh-keycat.pam
 Source5: hpnsshd.sysconfig
 Source6: hpnsshd@.service
