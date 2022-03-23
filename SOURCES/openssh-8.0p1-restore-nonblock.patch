@@ -1,0 +1,241 @@
+diff -up openssh-8.6p1/channels.c.restore-nonblock openssh-8.6p1/channels.c
+--- openssh-8.6p1/channels.c.restore-nonblock	2021-05-10 10:55:46.981156096 +0200
++++ openssh-8.6p1/channels.c	2021-05-10 11:05:14.674641053 +0200
+@@ -298,32 +298,38 @@ channel_lookup(struct ssh *ssh, int id)
+ }
+ 
+ /*
+- * Register filedescriptors for a channel, used when allocating a channel or
+- * when the channel consumer/producer is ready, e.g. shell exec'd
++ * Register a filedescriptor.
+  */
+ static void
+-channel_register_fds(struct ssh *ssh, Channel *c, int rfd, int wfd, int efd,
+-    int extusage, int nonblock, int is_tty)
++channel_register_fd(struct ssh *ssh, int fd, int nonblock)
+ {
+ 	struct ssh_channels *sc = ssh->chanctxt;
+ 
+ 	/* Update the maximum file descriptor value. */
+-	sc->channel_max_fd = MAXIMUM(sc->channel_max_fd, rfd);
+-	sc->channel_max_fd = MAXIMUM(sc->channel_max_fd, wfd);
+-	sc->channel_max_fd = MAXIMUM(sc->channel_max_fd, efd);
+-
+-	if (rfd != -1)
+-		fcntl(rfd, F_SETFD, FD_CLOEXEC);
+-	if (wfd != -1 && wfd != rfd)
+-		fcntl(wfd, F_SETFD, FD_CLOEXEC);
+-	if (efd != -1 && efd != rfd && efd != wfd)
+-		fcntl(efd, F_SETFD, FD_CLOEXEC);
++	sc->channel_max_fd = MAXIMUM(sc->channel_max_fd, fd);
++
++	if (fd != -1)
++		fcntl(fd, F_SETFD, FD_CLOEXEC);
+ 
++	/* enable nonblocking mode */
++	if (nonblock && fd != -1 && !isatty(fd))
++		set_nonblock(fd);
++}
++
++/*
++ * Register filedescriptors for a channel, used when allocating a channel or
++ * when the channel consumer/producer is ready, e.g. shell exec'd
++ */
++static void
++channel_register_fds(struct ssh *ssh, Channel *c, int rfd, int wfd, int efd,
++    int extusage, int nonblock, int is_tty)
++{
+ 	c->rfd = rfd;
+ 	c->wfd = wfd;
+ 	c->sock = (rfd == wfd) ? rfd : -1;
+ 	c->efd = efd;
+ 	c->extended_usage = extusage;
++	c->nonblock = 0;
+ 
+ 	if ((c->isatty = is_tty) != 0)
+ 		debug2("channel %d: rfd %d isatty", c->self, c->rfd);
+@@ -332,14 +338,20 @@ channel_register_fds(struct ssh *ssh, Ch
+ 	c->wfd_isatty = is_tty || isatty(c->wfd);
+ #endif
+ 
+-	/* enable nonblocking mode */
+-	if (nonblock) {
+-		if (rfd != -1)
+-			set_nonblock(rfd);
+-		if (wfd != -1)
+-			set_nonblock(wfd);
+-		if (efd != -1)
+-			set_nonblock(efd);
++	if (rfd != -1) {
++		if ((fcntl(rfd, F_GETFL) & O_NONBLOCK) == 0)
++			c->nonblock |= NEED_RESTORE_STDIN_NONBLOCK;
++		channel_register_fd(ssh, rfd, nonblock);
++	}
++	if (wfd != -1 && wfd != rfd) {
++		if ((fcntl(wfd, F_GETFL) & O_NONBLOCK) == 0)
++			c->nonblock |= NEED_RESTORE_STDOUT_NONBLOCK;
++		channel_register_fd(ssh, wfd, nonblock);
++	}
++	if (efd != -1 && efd != rfd && efd != wfd) {
++		if ((fcntl(efd, F_GETFL) & O_NONBLOCK) == 0)
++			c->nonblock |= NEED_RESTORE_STDERR_NONBLOCK;
++		channel_register_fd(ssh, efd, nonblock);
+ 	}
+ }
+ 
+@@ -422,11 +434,15 @@ channel_find_maxfd(struct ssh_channels *
+ }
+ 
+ int
+-channel_close_fd(struct ssh *ssh, int *fdp)
++channel_close_fd(struct ssh *ssh, int *fdp, int nonblock)
+ {
+ 	struct ssh_channels *sc = ssh->chanctxt;
+ 	int ret = 0, fd = *fdp;
+ 
++	/* As the fd is duped, restoring the block mode
++	 * affects the original fd */
++	if (nonblock && fd != -1 && !isatty(fd))
++		unset_nonblock(fd);
+ 	if (fd != -1) {
+ 		ret = close(fd);
+ 		*fdp = -1;
+@@ -442,13 +458,13 @@ channel_close_fds(struct ssh *ssh, Chann
+ {
+ 	int sock = c->sock, rfd = c->rfd, wfd = c->wfd, efd = c->efd;
+ 
+-	channel_close_fd(ssh, &c->sock);
++	channel_close_fd(ssh, &c->sock, 0);
+ 	if (rfd != sock)
+-		channel_close_fd(ssh, &c->rfd);
++		channel_close_fd(ssh, &c->rfd, c->nonblock & NEED_RESTORE_STDIN_NONBLOCK);
+ 	if (wfd != sock && wfd != rfd)
+-		channel_close_fd(ssh, &c->wfd);
++		channel_close_fd(ssh, &c->wfd, c->nonblock & NEED_RESTORE_STDOUT_NONBLOCK);
+ 	if (efd != sock && efd != rfd && efd != wfd)
+-		channel_close_fd(ssh, &c->efd);
++		channel_close_fd(ssh, &c->efd, c->nonblock & NEED_RESTORE_STDERR_NONBLOCK);
+ }
+ 
+ static void
+@@ -702,7 +718,7 @@ channel_stop_listening(struct ssh *ssh)
+ 			case SSH_CHANNEL_X11_LISTENER:
+ 			case SSH_CHANNEL_UNIX_LISTENER:
+ 			case SSH_CHANNEL_RUNIX_LISTENER:
+-				channel_close_fd(ssh, &c->sock);
++				channel_close_fd(ssh, &c->sock, 0);
+ 				channel_free(ssh, c);
+ 				break;
+ 			}
+@@ -1649,7 +1665,7 @@ channel_post_x11_listener(struct ssh *ss
+ 	if (c->single_connection) {
+ 		oerrno = errno;
+ 		debug2("single_connection: closing X11 listener.");
+-		channel_close_fd(ssh, &c->sock);
++		channel_close_fd(ssh, &c->sock, 0);
+ 		chan_mark_dead(ssh, c);
+ 		errno = oerrno;
+ 	}
+@@ -2058,7 +2074,7 @@ channel_handle_efd_write(struct ssh *ssh
+ 		return 1;
+ 	if (len <= 0) {
+ 		debug2("channel %d: closing write-efd %d", c->self, c->efd);
+-		channel_close_fd(ssh, &c->efd);
++		channel_close_fd(ssh, &c->efd, c->nonblock & NEED_RESTORE_STDERR_NONBLOCK);
+ 	} else {
+ 		if ((r = sshbuf_consume(c->extended, len)) != 0)
+ 			fatal_fr(r, "channel %i: consume", c->self);
+@@ -2087,7 +2103,7 @@ channel_handle_efd_read(struct ssh *ssh,
+ 		return 1;
+ 	if (len <= 0) {
+ 		debug2("channel %d: closing read-efd %d", c->self, c->efd);
+-		channel_close_fd(ssh, &c->efd);
++		channel_close_fd(ssh, &c->efd, c->nonblock & NEED_RESTORE_STDERR_NONBLOCK);
+ 	} else if (c->extended_usage == CHAN_EXTENDED_IGNORE)
+ 		debug3("channel %d: discard efd", c->self);
+ 	else if ((r = sshbuf_put(c->extended, buf, len)) != 0)
+diff -up openssh-8.6p1/channels.h.restore-nonblock openssh-8.6p1/channels.h
+--- openssh-8.6p1/channels.h.restore-nonblock	2021-05-10 10:55:46.942155788 +0200
++++ openssh-8.6p1/channels.h	2021-05-10 11:01:41.123953937 +0200
+@@ -188,8 +188,15 @@ struct Channel {
+ 	void			*mux_ctx;
+ 	int			mux_pause;
+ 	int			mux_downstream_id;
++
++	/* whether non-blocking is set to descriptors */
++	int 			nonblock;
+ };
+ 
++#define NEED_RESTORE_STDIN_NONBLOCK  1
++#define NEED_RESTORE_STDOUT_NONBLOCK 2
++#define NEED_RESTORE_STDERR_NONBLOCK 4
++
+ #define CHAN_EXTENDED_IGNORE		0
+ #define CHAN_EXTENDED_READ		1
+ #define CHAN_EXTENDED_WRITE		2
+@@ -266,7 +273,7 @@ void	 channel_register_filter(struct ssh
+ void	 channel_register_status_confirm(struct ssh *, int,
+ 	    channel_confirm_cb *, channel_confirm_abandon_cb *, void *);
+ void	 channel_cancel_cleanup(struct ssh *, int);
+-int	 channel_close_fd(struct ssh *, int *);
++int	 channel_close_fd(struct ssh *, int *, int);
+ void	 channel_send_window_changes(struct ssh *);
+ 
+ /* mux proxy support */
+diff -up openssh-8.6p1/nchan.c.restore-nonblock openssh-8.6p1/nchan.c
+--- openssh-8.6p1/nchan.c.restore-nonblock	2021-05-10 10:55:46.990156168 +0200
++++ openssh-8.6p1/nchan.c	2021-05-10 11:03:46.679945863 +0200
+@@ -384,7 +384,7 @@ chan_shutdown_write(struct ssh *ssh, Cha
+ 			    c->istate, c->ostate, strerror(errno));
+ 		}
+ 	} else {
+-		if (channel_close_fd(ssh, &c->wfd) < 0) {
++		if (channel_close_fd(ssh, &c->wfd, c->nonblock & NEED_RESTORE_STDOUT_NONBLOCK) < 0) {
+ 			logit_f("channel %d: close() failed for "
+ 			    "fd %d [i%d o%d]: %.100s", c->self, c->wfd,
+ 			    c->istate, c->ostate, strerror(errno));
+@@ -412,7 +412,7 @@ chan_shutdown_read(struct ssh *ssh, Chan
+ 			    c->istate, c->ostate, strerror(errno));
+ 		}
+ 	} else {
+-		if (channel_close_fd(ssh, &c->rfd) < 0) {
++		if (channel_close_fd(ssh, &c->rfd, c->nonblock & NEED_RESTORE_STDIN_NONBLOCK) < 0) {
+ 			logit_f("channel %d: close() failed for "
+ 			    "fd %d [i%d o%d]: %.100s", c->self, c->rfd,
+ 			    c->istate, c->ostate, strerror(errno));
+@@ -431,7 +431,7 @@ chan_shutdown_extended_read(struct ssh *
+ 	debug_f("channel %d: (i%d o%d sock %d wfd %d efd %d [%s])",
+ 	    c->self, c->istate, c->ostate, c->sock, c->rfd, c->efd,
+ 	    channel_format_extended_usage(c));
+-	if (channel_close_fd(ssh, &c->efd) < 0) {
++	if (channel_close_fd(ssh, &c->efd, c->nonblock & NEED_RESTORE_STDERR_NONBLOCK) < 0) {
+ 		logit_f("channel %d: close() failed for "
+ 		    "extended fd %d [i%d o%d]: %.100s", c->self, c->efd,
+ 		    c->istate, c->ostate, strerror(errno));
+diff -up openssh-8.6p1/ssh.c.restore-nonblock openssh-8.6p1/ssh.c
+--- openssh-8.6p1/ssh.c.restore-nonblock	2021-05-10 10:55:46.991156175 +0200
++++ openssh-8.6p1/ssh.c	2021-05-10 11:06:28.315222828 +0200
+@@ -2085,14 +2085,6 @@ ssh_session2_open(struct ssh *ssh)
+ 	if (in == -1 || out == -1 || err == -1)
+ 		fatal("dup() in/out/err failed");
+ 
+-	/* enable nonblocking unless tty */
+-	if (!isatty(in))
+-		set_nonblock(in);
+-	if (!isatty(out))
+-		set_nonblock(out);
+-	if (!isatty(err))
+-		set_nonblock(err);
+-
+ 	window = CHAN_SES_WINDOW_DEFAULT;
+ 	packetmax = CHAN_SES_PACKET_DEFAULT;
+ 	if (tty_flag) {
+@@ -2102,7 +2094,7 @@ ssh_session2_open(struct ssh *ssh)
+ 	c = channel_new(ssh,
+ 	    "session", SSH_CHANNEL_OPENING, in, out, err,
+ 	    window, packetmax, CHAN_EXTENDED_WRITE,
+-	    "client-session", /*nonblock*/0);
++	    "client-session", /*nonblock*/1);
+ 
+ 	debug3_f("channel_new: %d", c->self);
+ 

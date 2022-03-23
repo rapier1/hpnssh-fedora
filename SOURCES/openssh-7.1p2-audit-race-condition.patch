@@ -1,0 +1,190 @@
+Index: hpnssh-8.8p1_hpn16v1/monitor_wrap.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/monitor_wrap.c
++++ hpnssh-8.8p1_hpn16v1/monitor_wrap.c
+@@ -1216,4 +1216,50 @@ mm_audit_destroy_sensitive_data(struct s
+ 	mm_request_send(pmonitor->m_recvfd, MONITOR_REQ_AUDIT_SERVER_KEY_FREE, m);
+ 	sshbuf_free(m);
+ }
++
++int mm_forward_audit_messages(int fdin)
++{
++	u_char buf[4];
++	u_int blen, msg_len;
++	struct sshbuf *m;
++	int r, ret = 0;
++
++	debug3_f("entering");
++	if ((m = sshbuf_new()) == NULL)
++ 		fatal_f("sshbuf_new failed");
++	do {
++		blen = atomicio(read, fdin, buf, sizeof(buf));
++		if (blen == 0) /* closed pipe */
++			break;
++		if (blen != sizeof(buf)) {
++			error_f("Failed to read the buffer from child");
++			ret = -1;
++			break;
++		}
++
++		msg_len = get_u32(buf);
++		if (msg_len > 256 * 1024)
++			fatal_f("read: bad msg_len %d", msg_len);
++		sshbuf_reset(m);
++		if ((r = sshbuf_reserve(m, msg_len, NULL)) != 0)
++			fatal_fr(r, "buffer error");
++		if (atomicio(read, fdin, sshbuf_mutable_ptr(m), msg_len) != msg_len) {
++			error_f("Failed to read the the buffer content from the child");
++			ret = -1;
++			break;
++		}
++		if (atomicio(vwrite, pmonitor->m_recvfd, buf, blen) != blen || 
++		    atomicio(vwrite, pmonitor->m_recvfd, sshbuf_mutable_ptr(m), msg_len) != msg_len) {
++			error_f("Failed to write the message to the monitor");
++			ret = -1;
++			break;
++		}
++	} while (1);
++	sshbuf_free(m);
++	return ret;
++}
++void mm_set_monitor_pipe(int fd)
++{
++	pmonitor->m_recvfd = fd;
++}
+ #endif /* SSH_AUDIT_EVENTS */
+Index: hpnssh-8.8p1_hpn16v1/monitor_wrap.h
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/monitor_wrap.h
++++ hpnssh-8.8p1_hpn16v1/monitor_wrap.h
+@@ -94,6 +94,8 @@ void mm_audit_unsupported_body(struct ss
+ void mm_audit_kex_body(struct ssh *, int, char *, char *, char *, char *, pid_t, uid_t);
+ void mm_audit_session_key_free_body(struct ssh *, int, pid_t, uid_t);
+ void mm_audit_destroy_sensitive_data(struct ssh *, const char *, pid_t, uid_t);
++int mm_forward_audit_messages(int);
++void mm_set_monitor_pipe(int);
+ #endif
+ 
+ struct Session;
+Index: hpnssh-8.8p1_hpn16v1/session.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/session.c
++++ hpnssh-8.8p1_hpn16v1/session.c
+@@ -159,6 +159,10 @@ static Session *sessions = NULL;
+ login_cap_t *lc;
+ #endif
+ 
++#ifdef SSH_AUDIT_EVENTS
++int paudit[2];
++#endif
++
+ static int is_child = 0;
+ static int in_chroot = 0;
+ static int have_dev_log = 1;
+@@ -383,6 +387,8 @@ xauth_valid_string(const char *s)
+ 	return 1;
+ }
+ 
++void child_destory_sensitive_data(struct ssh *ssh);
++
+ #define USE_PIPES 1
+ /*
+  * This is called to fork and execute a command when we have no tty.  This
+@@ -506,6 +512,8 @@ do_exec_no_pty(struct ssh *ssh, Session
+ 		close(err[0]);
+ #endif
+ 
++		child_destory_sensitive_data(ssh);
++
+ 		/* Do processing for the child (exec command etc). */
+ 		do_child(ssh, s, command);
+ 		/* NOTREACHED */
+@@ -623,6 +631,9 @@ do_exec_pty(struct ssh *ssh, Session *s,
+ 		/* Close the extra descriptor for the pseudo tty. */
+ 		close(ttyfd);
+ 
++		/* Do this early, so we will not block large MOTDs */
++		child_destory_sensitive_data(ssh);
++
+ 		/* record login, etc. similar to login(1) */
+ #ifndef HAVE_OSF_SIA
+ 		do_login(ssh, s, command);
+@@ -759,6 +770,8 @@ do_exec(struct ssh *ssh, Session *s, con
+ 	}
+ 	if (s->command != NULL && s->ptyfd == -1)
+ 		s->command_handle = PRIVSEP(audit_run_command(ssh, s->command));
++	if (pipe(paudit) < 0)
++		fatal("pipe: %s", strerror(errno));
+ #endif
+ 	if (s->ttyfd != -1)
+ 		ret = do_exec_pty(ssh, s, command);
+@@ -774,6 +787,20 @@ do_exec(struct ssh *ssh, Session *s, con
+ 	 */
+ 	sshbuf_reset(loginmsg);
+ 
++#ifdef SSH_AUDIT_EVENTS
++	close(paudit[1]);
++	if (use_privsep && ret == 0) {
++		/*
++		 * Read the audit messages from forked child and send them
++		 * back to monitor. We don't want to communicate directly,
++		 * because the messages might get mixed up.
++		 * Continue after the pipe gets closed (all messages sent).
++		 */
++		ret = mm_forward_audit_messages(paudit[0]);
++	}
++	close(paudit[0]);
++#endif /* SSH_AUDIT_EVENTS */
++
+ 	return ret;
+ }
+ 
+@@ -1546,6 +1573,34 @@ child_close_fds(struct ssh *ssh)
+ 	log_redirect_stderr_to(NULL);
+ }
+ 
++void
++child_destory_sensitive_data(struct ssh *ssh)
++{
++#ifdef SSH_AUDIT_EVENTS
++	int pparent = paudit[1];
++	close(paudit[0]);
++	/* Hack the monitor pipe to avoid race condition with parent */
++	if (use_privsep)
++		mm_set_monitor_pipe(pparent);
++#endif
++
++	/* remove hostkey from the child's memory */
++	destroy_sensitive_data(ssh, use_privsep);
++	/*
++	 * We can audit this, because we hacked the pipe to direct the
++	 * messages over postauth child. But this message requires answer
++	 * which we can't do using one-way pipe.
++	 */
++	packet_destroy_all(ssh, 0, 1);
++	/* XXX this will clean the rest but should not audit anymore */
++	/* packet_clear_keys(ssh); */
++
++#ifdef SSH_AUDIT_EVENTS
++	/* Notify parent that we are done */
++	close(pparent);
++#endif
++}
++
+ /*
+  * Performs common processing for the child, such as setting up the
+  * environment, closing extra file descriptors, setting the user and group
+@@ -1563,13 +1618,6 @@ do_child(struct ssh *ssh, Session *s, co
+ 
+ 	sshpkt_fmt_connection_id(ssh, remote_id, sizeof(remote_id));
+ 
+-	/* remove hostkey from the child's memory */
+-	destroy_sensitive_data(ssh, 1);
+-	ssh_packet_clear_keys(ssh);
+-	/* Don't audit this - both us and the parent would be talking to the
+-	   monitor over a single socket, with no synchronization. */
+-	packet_destroy_all(ssh, 0, 1);
+-
+ 	/* Force a password change */
+ 	if (s->authctxt->force_pwchange) {
+ 		do_setusercontext(pw);

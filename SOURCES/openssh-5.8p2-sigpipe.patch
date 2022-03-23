@@ -1,0 +1,13 @@
+Index: hpnssh-8.8p1_hpn16v1/ssh-keyscan.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/ssh-keyscan.c
++++ hpnssh-8.8p1_hpn16v1/ssh-keyscan.c
+@@ -779,6 +779,8 @@ main(int argc, char **argv)
+ 		fdlim_set(maxfd);
+ 	fdcon = xcalloc(maxfd, sizeof(con));
+ 
++	signal(SIGPIPE, SIG_IGN);
++
+ 	read_wait_nfdset = howmany(maxfd, NFDBITS);
+ 	read_wait = xcalloc(read_wait_nfdset, sizeof(fd_mask));
+ 

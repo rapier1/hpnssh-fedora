@@ -1,0 +1,14 @@
+# Requires SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/ssh-agent.socket"
+# set in environment, handled for example in plasma via
+# /etc/xdg/plasma-workspace/env/ssh-agent.sh
+[Unit]
+ConditionEnvironment=!SSH_AGENT_PID
+Description=HPN/OpenSSH key agent
+Documentation=man:hpnssh-agent(1) man:hpnssh-add(1) man:hpnssh(1)
+
+[Service]
+Environment=SSH_AUTH_SOCK=%t/ssh-agent.socket
+ExecStart=/usr/bin/hpnssh-agent -a $SSH_AUTH_SOCK
+PassEnvironment=SSH_AGENT_PID
+SuccessExitStatus=2
+Type=forking

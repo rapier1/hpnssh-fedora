@@ -1,0 +1,17 @@
+[Unit]
+Description=HPN-SSH server daemon
+Documentation=man:hpnsshd(8) man:hpnsshd_config(5)
+After=network.target hpnsshd-keygen.target
+Wants=hpnsshd-keygen.target
+
+[Service]
+Type=notify
+EnvironmentFile=-/etc/sysconfig/hpnsshd
+ExecStart=/usr/sbin/hpnsshd -D $OPTIONS
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+RestartSec=42s
+
+[Install]
+WantedBy=multi-user.target

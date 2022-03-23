@@ -1,0 +1,11 @@
+[Unit]
+Description=HPN/OpenSSH %i Server Key Generation
+ConditionFileNotEmpty=|!/etc/hpnssh/ssh_host_%i_key
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sysconfig/hpnsshd
+ExecStart=/usr/libexec/openssh/hpnsshd-keygen %i
+
+[Install]
+WantedBy=hpnsshd-keygen.target

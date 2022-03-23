@@ -1,0 +1,102 @@
+Index: hpnssh-8.8p1_hpn16v1/hpnsftp-server.8
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/hpnsftp-server.8
++++ hpnssh-8.8p1_hpn16v1/hpnsftp-server.8
+@@ -38,6 +38,7 @@
+ .Op Fl P Ar denied_requests
+ .Op Fl p Ar allowed_requests
+ .Op Fl u Ar umask
++.Op Fl m Ar force_file_perms
+ .Ek
+ .Nm
+ .Fl Q Ar protocol_feature
+@@ -138,6 +139,12 @@ Sets an explicit
+ .Xr umask 2
+ to be applied to newly-created files and directories, instead of the
+ user's default mask.
++.It Fl m Ar force_file_perms
++Sets explicit file permissions to be applied to newly-created files instead
++of the default or client requested mode.  Numeric values include:
++777, 755, 750, 666, 644, 640, etc.  Using both -m and -u switches makes the
++umask (-u) effective only for newly created directories and explicit mode (-m)
++for newly created files.
+ .El
+ .Pp
+ On some systems,
+Index: hpnssh-8.8p1_hpn16v1/sftp-server.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/sftp-server.c
++++ hpnssh-8.8p1_hpn16v1/sftp-server.c
+@@ -71,6 +71,10 @@ struct sshbuf *oqueue;
+ /* Version of client */
+ static u_int version;
+ 
++/* Force file permissions */
++int permforce = 0;
++long permforcemode;
++
+ /* SSH2_FXP_INIT received */
+ static int init_done;
+ 
+@@ -722,6 +726,7 @@ process_open(u_int32_t id)
+ 	Attrib a;
+ 	char *name;
+ 	int r, handle, fd, flags, mode, status = SSH2_FX_FAILURE;
++	mode_t old_umask = 0;
+ 
+ 	if ((r = sshbuf_get_cstring(iqueue, &name, NULL)) != 0 ||
+ 	    (r = sshbuf_get_u32(iqueue, &pflags)) != 0 || /* portable flags */
+@@ -731,6 +736,10 @@ process_open(u_int32_t id)
+ 	debug3("request %u: open flags %d", id, pflags);
+ 	flags = flags_from_portable(pflags);
+ 	mode = (a.flags & SSH2_FILEXFER_ATTR_PERMISSIONS) ? a.perm : 0666;
++	if (permforce == 1) {   /* Force perm if -m is set */
++		mode = permforcemode;
++		old_umask = umask(0); /* so umask does not interfere */
++	}	
+ 	logit("open \"%s\" flags %s mode 0%o",
+ 	    name, string_from_portable(pflags), mode);
+ 	if (readonly &&
+@@ -752,6 +761,8 @@ process_open(u_int32_t id)
+ 			}
+ 		}
+ 	}
++	if (permforce == 1)
++		(void) umask(old_umask); /* restore umask to something sane */
+ 	if (status != SSH2_FX_OK)
+ 		send_status(id, status);
+ 	free(name);
+@@ -1698,7 +1709,7 @@ sftp_server_usage(void)
+ 	fprintf(stderr,
+ 	    "usage: %s [-ehR] [-d start_directory] [-f log_facility] "
+ 	    "[-l log_level]\n\t[-P denied_requests] "
+-	    "[-p allowed_requests] [-u umask]\n"
++	    "[-p allowed_requests] [-u umask] [-m force_file_perms]\n"
+ 	    "       %s -Q protocol_feature\n",
+ 	    __progname, __progname);
+ 	exit(1);
+@@ -1723,7 +1734,7 @@ sftp_server_main(int argc, char **argv,
+ 	pw = pwcopy(user_pw);
+ 
+ 	while (!skipargs && (ch = getopt(argc, argv,
+-	    "d:f:l:P:p:Q:u:cehR")) != -1) {
++	    "d:f:l:P:p:Q:u:m:cehR")) != -1) {
+ 		switch (ch) {
+ 		case 'Q':
+ 			if (strcasecmp(optarg, "requests") != 0) {
+@@ -1785,6 +1796,15 @@ sftp_server_main(int argc, char **argv,
+ 				fatal("Invalid umask \"%s\"", optarg);
+ 			(void)umask((mode_t)mask);
+ 			break;
++		case 'm':
++			/* Force permissions on file received via sftp */
++			permforce = 1;
++			permforcemode = strtol(optarg, &cp, 8);
++			if (permforcemode < 0 || permforcemode > 0777 ||
++			    *cp != '\0' || (permforcemode == 0 &&
++			    errno != 0))
++				fatal("Invalid file mode \"%s\"", optarg);
++			break;
+ 		case 'h':
+ 		default:
+ 			sftp_server_usage();

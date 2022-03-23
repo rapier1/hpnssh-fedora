@@ -1,0 +1,134 @@
+Index: hpnssh-8.8p1_hpn16v1/ssh_config
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/ssh_config
++++ hpnssh-8.8p1_hpn16v1/ssh_config
+@@ -44,3 +44,10 @@
+ #   ProxyCommand ssh -q -W %h:%p gateway.example.com
+ #   RekeyLimit 1G 1h
+ #   UserKnownHostsFile ~/.ssh/known_hosts.d/%k
++#
++# This system is following system-wide crypto policy.
++# To modify the crypto properties (Ciphers, MACs, ...), create a  *.conf
++#  file under  /etc/ssh/ssh_config.d/  which will be automatically
++# included below. For more information, see manual page for
++#  update-crypto-policies(8)  and  ssh_config(5).
++Include /etc/hpnssh/ssh_config.d/*.conf
+Index: hpnssh-8.8p1_hpn16v1/ssh_config_redhat
+===================================================================
+--- /dev/null
++++ hpnssh-8.8p1_hpn16v1/ssh_config_redhat
+@@ -0,0 +1,34 @@
++# The options here are in the "Match final block" to be applied as the last
++# options and could be potentially overwritten by the user configuration
++Match final all
++	# Follow system-wide Crypto Policy, if defined:
++	#Include /etc/crypto-policies/back-ends/openssh.config
++        # like with sshd the include doesn't work properly with 8.8
++	
++Ciphers aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes128-gcm@openssh.com,aes128-ctr
++
++MACs hmac-sha2-256-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha1,umac-128@openssh.com,hmac-sha2-512
++
++GSSAPIKexAlgorithms gss-curve25519-sha256-,gss-nistp256-sha256-,gss-group14-sha256-,gss-group16-sha512-
++
++KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
++
++PubkeyAcceptedAlgorithms ecdsa-sha2-nistp256,ecdsa-sha2-nistp256-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521,ecdsa-sha2-nistp521-cert-v01@openssh.com,ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,rsa-sha2-256,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-512-cert-v01@openssh.com
++
++CASignatureAlgorithms ecdsa-sha2-nistp256,sk-ecdsa-sha2-nistp256@openssh.com,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-ed25519,sk-ssh-ed25519@openssh.com,rsa-sha2-256,rsa-sha2-512
++
++	GSSAPIAuthentication yes
++
++# If this option is set to yes then remote X11 clients will have full access
++# to the original X11 display. As virtually no X11 client supports the untrusted
++# mode correctly we set this to yes.
++	ForwardX11Trusted yes
++
++# Send locale-related environment variables
++	SendEnv LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES
++	SendEnv LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT
++	SendEnv LC_IDENTIFICATION LC_ALL LANGUAGE
++	SendEnv XMODIFIERS
++
++# Uncomment this if you want to use .local domain
++# Host *.local
+Index: hpnssh-8.8p1_hpn16v1/sshd_config
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/sshd_config
++++ hpnssh-8.8p1_hpn16v1/sshd_config
+@@ -10,6 +10,15 @@
+ # possible, but leave them commented.  Uncommented options override the
+ # default value.
+ 
++# To modify the system-wide sshd configuration, create a  *.conf  file under
++#  /etc/ssh/sshd_config.d/  which will be automatically included below
++Include /etc/hpnssh/sshd_config.d/*.conf
++
++# If you want to change the port on a SELinux system, you have to tell
++# SELinux about this change.
++# semanage port -a -t ssh_port_t -p tcp #PORTNUMBER
++#
++
+ Port 2222
+ #AddressFamily any
+ #ListenAddress 0.0.0.0
+Index: hpnssh-8.8p1_hpn16v1/hpnsshd_config.5
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/hpnsshd_config.5
++++ hpnssh-8.8p1_hpn16v1/hpnsshd_config.5
+@@ -1733,7 +1733,7 @@ By default no subsystems are defined.
+ .It Cm SyslogFacility
+ Gives the facility code that is used when logging messages from
+ .Xr sshd 8 .
+-The possible values are: DAEMON, USER, AUTH, LOCAL0, LOCAL1, LOCAL2,
++The possible values are: DAEMON, USER, AUTH, AUTHPRIV, LOCAL0, LOCAL1, LOCAL2,
+ LOCAL3, LOCAL4, LOCAL5, LOCAL6, LOCAL7.
+ The default is AUTH.
+ .It Cm TCPKeepAlive
+Index: hpnssh-8.8p1_hpn16v1/sshd_config_redhat
+===================================================================
+--- /dev/null
++++ hpnssh-8.8p1_hpn16v1/sshd_config_redhat
+@@ -0,0 +1,42 @@
++# This system is following system-wide crypto policy. The changes to
++# crypto properties (Ciphers, MACs, ...) will not have any effect in
++# this or following included files. To override some configuration option,
++# write it before this block or include it before this file.
++# Please, see manual pages for update-crypto-policies(8) and sshd_config(5).
++
++# with 8.8 the crypto policies won't load so we set the same policies here
++
++Ciphers aes256-gcm@openssh.com,chacha20-poly1305@openssh.com,aes256-ctr,aes128-gcm@openssh.com,aes128-ctr
++
++MACs hmac-sha2-256-etm@openssh.com,hmac-sha1-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512-etm@openssh.com,hmac-sha2-256,hmac-sha1,umac-128@openssh.com,hmac-sha2-512
++
++GSSAPIKexAlgorithms gss-curve25519-sha256-,gss-nistp256-sha256-,gss-group14-sha256-,gss-group16-sha512-
++KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,ecdh-sha2-nistp521,diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
++
++HostKeyAlgorithms ecdsa-sha2-nistp256,ecdsa-sha2-nistp256-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521,ecdsa-sha2-nistp521-cert-v01@openssh.com,ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,rsa-sha2-256,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-512-cert-v01@openssh.com
++
++PubkeyAcceptedAlgorithms ecdsa-sha2-nistp256,ecdsa-sha2-nistp256-cert-v01@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com,sk-ecdsa-sha2-nistp256-cert-v01@openssh.com,ecdsa-sha2-nistp384,ecdsa-sha2-nistp384-cert-v01@openssh.com,ecdsa-sha2-nistp521,ecdsa-sha2-nistp521-cert-v01@openssh.com,ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com,rsa-sha2-256,rsa-sha2-256-cert-v01@openssh.com,rsa-sha2-512,rsa-sha2-512-cert-v01@openssh.com
++
++CASignatureAlgorithms ecdsa-sha2-nistp256,sk-ecdsa-sha2-nistp256@openssh.com,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-ed25519,sk-ssh-ed25519@openssh.com,rsa-sha2-256,rsa-sha2-512
++
++SyslogFacility AUTHPRIV
++
++ChallengeResponseAuthentication no
++
++GSSAPIAuthentication yes
++GSSAPICleanupCredentials no
++
++UsePAM yes
++
++X11Forwarding yes
++
++# It is recommended to use pam_motd in /etc/pam.d/sshd instead of PrintMotd,
++# as it is more configurable and versatile than the built-in version.
++PrintMotd no
++
++# Accept locale-related environment variables
++AcceptEnv LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES
++AcceptEnv LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT
++AcceptEnv LC_IDENTIFICATION LC_ALL LANGUAGE
++AcceptEnv XMODIFIERS
++

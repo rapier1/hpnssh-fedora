@@ -1,0 +1,2 @@
+#Type Name     ID   GECOS                        Home directory          Shell
+u     hpnsshd  -   "Privilege-Separated HPNSSH"  /run/empty.hpnsshd      /sbin/nologin

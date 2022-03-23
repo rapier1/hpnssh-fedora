@@ -1,0 +1,135 @@
+Index: hpnssh-8.8p1_hpn16v1/gss-serv-krb5.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/gss-serv-krb5.c
++++ hpnssh-8.8p1_hpn16v1/gss-serv-krb5.c
+@@ -278,7 +278,6 @@ ssh_gssapi_krb5_cmdok(krb5_principal pri
+ 	FILE *fp;
+ 	char file[MAXPATHLEN];
+ 	char *line = NULL;
+-	char kuser[65]; /* match krb5_kuserok() */
+ 	struct stat st;
+ 	struct passwd *pw = the_authctxt->pw;
+ 	int found_principal = 0;
+@@ -288,7 +287,7 @@ ssh_gssapi_krb5_cmdok(krb5_principal pri
+ 
+ 	snprintf(file, sizeof(file), "%s/.k5users", pw->pw_dir);
+ 	/* If both .k5login and .k5users DNE, self-login is ok. */
+-	if (!k5login_exists && (access(file, F_OK) == -1)) {
++	if ( !options.enable_k5users || (!k5login_exists && (access(file, F_OK) == -1))) {
+                 return ssh_krb5_kuserok(krb_context, principal, luser,
+                                         k5login_exists);
+ 	}
+Index: hpnssh-8.8p1_hpn16v1/servconf.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/servconf.c
++++ hpnssh-8.8p1_hpn16v1/servconf.c
+@@ -145,6 +145,7 @@ initialize_server_options(ServerOptions
+ 	options->gss_store_rekey = -1;
+ 	options->gss_kex_algorithms = NULL;
+ 	options->use_kuserok = -1;
++	options->enable_k5users = -1;
+ 	options->password_authentication = -1;
+ 	options->kbd_interactive_authentication = -1;
+ 	options->permit_empty_passwd = -1;
+@@ -389,6 +390,8 @@ fill_default_server_options(ServerOption
+ #endif
+ 	if (options->use_kuserok == -1)
+ 		options->use_kuserok = 1;
++	if (options->enable_k5users == -1)
++		options->enable_k5users = 0;
+ 	if (options->password_authentication == -1)
+ 		options->password_authentication = 1;
+ 	if (options->kbd_interactive_authentication == -1)
+@@ -582,7 +585,7 @@ typedef enum {
+ 	sHostbasedUsesNameFromPacketOnly, sHostbasedAcceptedAlgorithms,
+ 	sHostKeyAlgorithms, sPerSourceMaxStartups, sPerSourceNetBlockSize,
+ 	sClientAliveInterval, sClientAliveCountMax, sAuthorizedKeysFile,
+-	sGssAuthentication, sGssCleanupCreds, sGssStrictAcceptor,
++	sGssAuthentication, sGssCleanupCreds, sGssEnablek5users, sGssStrictAcceptor,
+ 	sGssKeyEx, sGssKexAlgorithms, sGssStoreRekey,
+ 	sAcceptEnv, sSetEnv, sPermitTunnel,
+ 	sMatch, sPermitOpen, sPermitListen, sForceCommand, sChrootDirectory,
+@@ -674,6 +677,7 @@ static struct {
+ 	{ "gssapikeyexchange", sGssKeyEx, SSHCFG_GLOBAL },
+ 	{ "gssapistorecredentialsonrekey", sGssStoreRekey, SSHCFG_GLOBAL },
+ 	{ "gssapikexalgorithms", sGssKexAlgorithms, SSHCFG_GLOBAL },
++	{ "gssapienablek5users", sGssEnablek5users, SSHCFG_ALL },
+ #else
+ 	{ "gssapiauthentication", sUnsupported, SSHCFG_ALL },
+ 	{ "gssapicleanupcredentials", sUnsupported, SSHCFG_GLOBAL },
+@@ -682,6 +686,7 @@ static struct {
+ 	{ "gssapikeyexchange", sUnsupported, SSHCFG_GLOBAL },
+ 	{ "gssapistorecredentialsonrekey", sUnsupported, SSHCFG_GLOBAL },
+ 	{ "gssapikexalgorithms", sUnsupported, SSHCFG_GLOBAL },
++	{ "gssapienablek5users", sUnsupported, SSHCFG_ALL },
+ #endif
+ 	{ "gssusesessionccache", sUnsupported, SSHCFG_GLOBAL },
+ 	{ "gssapiusesessioncredcache", sUnsupported, SSHCFG_GLOBAL },
+@@ -2331,6 +2336,10 @@ process_server_config_line_depth(ServerO
+ 		intptr = &options->use_kuserok;
+ 		goto parse_flag;
+ 
++	case sGssEnablek5users:
++		intptr = &options->enable_k5users;
++		goto parse_flag;
++
+ 	case sPermitListen:
+ 	case sPermitOpen:
+ 		if (opcode == sPermitListen) {
+@@ -2758,6 +2767,7 @@ copy_set_server_options(ServerOptions *d
+ 	M_CP_INTOPT(ip_qos_interactive);
+ 	M_CP_INTOPT(ip_qos_bulk);
+ 	M_CP_INTOPT(use_kuserok);
++	M_CP_INTOPT(enable_k5users);
+ 	M_CP_INTOPT(rekey_limit);
+ 	M_CP_INTOPT(rekey_interval);
+ 	M_CP_INTOPT(log_level);
+@@ -3043,6 +3053,7 @@ dump_config(ServerOptions *o)
+ # endif
+ 	dump_cfg_fmtint(sKerberosUniqueCCache, o->kerberos_unique_ccache);
+ 	dump_cfg_fmtint(sKerberosUseKuserok, o->use_kuserok);
++	dump_cfg_fmtint(sGssEnablek5users, o->enable_k5users);
+ #endif
+ #ifdef GSSAPI
+ 	dump_cfg_fmtint(sGssAuthentication, o->gss_authentication);
+Index: hpnssh-8.8p1_hpn16v1/servconf.h
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/servconf.h
++++ hpnssh-8.8p1_hpn16v1/servconf.h
+@@ -143,6 +143,7 @@ typedef struct {
+ 	int     kerberos_unique_ccache;		/* If true, the acquired ticket will
+ 						 * be stored in per-session ccache */
+ 	int	use_kuserok;
++	int		enable_k5users;
+ 	int     gss_authentication;	/* If true, permit GSSAPI authentication */
+ 	int     gss_keyex;		/* If true, permit GSSAPI key exchange */
+ 	int     gss_cleanup_creds;	/* If true, destroy cred cache on logout */
+Index: hpnssh-8.8p1_hpn16v1/sshd_config
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/sshd_config
++++ hpnssh-8.8p1_hpn16v1/sshd_config
+@@ -80,6 +80,7 @@ AuthorizedKeysFile	.ssh/authorized_keys
+ #GSSAPICleanupCredentials yes
+ #GSSAPIStrictAcceptorCheck yes
+ #GSSAPIKeyExchange no
++#GSSAPIEnablek5users no
+ 
+ # Set this to 'yes' to enable PAM authentication, account processing,
+ # and session processing. If this is enabled, PAM authentication will
+Index: hpnssh-8.8p1_hpn16v1/hpnsshd_config.5
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/hpnsshd_config.5
++++ hpnssh-8.8p1_hpn16v1/hpnsshd_config.5
+@@ -664,6 +664,12 @@ Specifies whether to automatically destr
+ on logout.
+ The default is
+ .Cm yes .
++.It Cm GSSAPIEnablek5users
++Specifies whether to look at .k5users file for GSSAPI authentication
++access control. Further details are described in
++.Xr ksu 1 .
++The default is
++.Cm no .
+ .It Cm GSSAPIKeyExchange
+ Specifies whether key exchange based on GSSAPI is allowed. GSSAPI key exchange
+ doesn't rely on ssh keys to verify host identity.

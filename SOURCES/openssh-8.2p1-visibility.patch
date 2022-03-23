@@ -1,0 +1,40 @@
+Index: hpnssh-8.8p1_hpn16v1/regress/misc/sk-dummy/sk-dummy.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/regress/misc/sk-dummy/sk-dummy.c
++++ hpnssh-8.8p1_hpn16v1/regress/misc/sk-dummy/sk-dummy.c
+@@ -78,7 +78,7 @@ skdebug(const char *func, const char *fm
+ #endif
+ }
+ 
+-uint32_t
++uint32_t __attribute__((visibility("default")))
+ sk_api_version(void)
+ {
+ 	return SSH_SK_VERSION_MAJOR;
+@@ -227,7 +227,7 @@ check_options(struct sk_option **options
+ 	return 0;
+ }
+ 
+-int
++int __attribute__((visibility("default")))
+ sk_enroll(uint32_t alg, const uint8_t *challenge, size_t challenge_len,
+     const char *application, uint8_t flags, const char *pin,
+     struct sk_option **options, struct sk_enroll_response **enroll_response)
+@@ -474,7 +474,7 @@ sig_ed25519(const uint8_t *message, size
+ 	return ret;
+ }
+ 
+-int
++int __attribute__((visibility("default")))
+ sk_sign(uint32_t alg, const uint8_t *data, size_t datalen,
+     const char *application, const uint8_t *key_handle, size_t key_handle_len,
+     uint8_t flags, const char *pin, struct sk_option **options,
+@@ -531,7 +531,7 @@ sk_sign(uint32_t alg, const uint8_t *dat
+ 	return ret;
+ }
+ 
+-int
++int __attribute__((visibility("default")))
+ sk_load_resident_keys(const char *pin, struct sk_option **options,
+     struct sk_resident_key ***rks, size_t *nrks)
+ {

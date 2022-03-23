@@ -1,0 +1,30 @@
+Index: hpnssh-8.8p1_hpn16v1/sshd.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/sshd.c
++++ hpnssh-8.8p1_hpn16v1/sshd.c
+@@ -1776,6 +1776,10 @@ main(int ac, char **av)
+ 	parse_server_config(&options, rexeced_flag ? "rexec" : config_file_name,
+ 	    cfg, &includes, NULL);
+ 
++	/* 'UsePAM no' is not supported in Fedora */
++	if (! options.use_pam)
++		logit("WARNING: 'UsePAM no' is not supported in Fedora and may cause several problems.");
++
+ #ifdef WITH_OPENSSL
+ 	if (options.moduli_file != NULL)
+ 		dh_set_moduli_file(options.moduli_file);
+Index: hpnssh-8.8p1_hpn16v1/sshd_config
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/sshd_config
++++ hpnssh-8.8p1_hpn16v1/sshd_config
+@@ -87,7 +87,9 @@ AuthorizedKeysFile	.ssh/authorized_keys
+ # If you just want the PAM account and session checks to run without
+ # PAM authentication, then enable this but set PasswordAuthentication
+ # and KbdInteractiveAuthentication to 'no'.
+-#UsePAM no
++# WARNING: 'UsePAM no' is not supported in Fedora and may cause several
++# problems.
++UsePAM yes
+ 
+ #AllowAgentForwarding yes
+ #AllowTcpForwarding yes

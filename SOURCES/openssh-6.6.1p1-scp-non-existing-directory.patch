@@ -1,0 +1,15 @@
+Index: hpnssh-8.8p1_hpn16v1/scp.c
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/scp.c
++++ hpnssh-8.8p1_hpn16v1/scp.c
+@@ -2085,6 +2085,10 @@ sink(int argc, char **argv, const char *
+ 			free(vect[0]);
+ 			continue;
+ 		}
++		if (buf[0] == 'C' && ! exists && np[strlen(np)-1] == '/') {
++			errno = ENOTDIR;
++			goto bad;
++		}
+ 		omode = mode;
+ 		mode |= S_IWUSR;
+ 		stat(cp, &cpstat);

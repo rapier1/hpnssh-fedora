@@ -1,0 +1,30 @@
+Index: hpnssh-8.8p1_hpn16v1/hpnssh.1
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/hpnssh.1
++++ hpnssh-8.8p1_hpn16v1/hpnssh.1
+@@ -1659,6 +1659,10 @@ manual page for more information.
+ .Nm
+ exits with the exit status of the remote command or with 255
+ if an error occurred.
++.Sh IPV6
++IPv6 address can be used everywhere where IPv4 address. In all entries
++must be the IPv6 address enclosed in square brackets. Note: The square
++brackets are metacharacters for the shell and must be escaped in shell.
+ .Sh SEE ALSO
+ .Xr hpnscp 1 ,
+ .Xr hpnsftp 1 ,
+Index: hpnssh-8.8p1_hpn16v1/hpnsshd.8
+===================================================================
+--- hpnssh-8.8p1_hpn16v1.orig/hpnsshd.8
++++ hpnssh-8.8p1_hpn16v1/hpnsshd.8
+@@ -1000,6 +1000,10 @@ listening for connections (if there are
+ concurrently for different ports, this contains the process ID of the one
+ started last).
+ The content of this file is not sensitive; it can be world-readable.
++.Sh IPV6
++IPv6 address can be used everywhere where IPv4 address. In all entries
++must be the IPv6 address enclosed in square brackets. Note: The square
++brackets are metacharacters for the shell and must be escaped in shell.
+ .El
+ .Sh SEE ALSO
+ .Xr hpnscp 1 ,

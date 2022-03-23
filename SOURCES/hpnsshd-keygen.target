@@ -1,0 +1,5 @@
+[Unit]
+Wants=hpnsshd-keygen@rsa.service
+Wants=hpnsshd-keygen@ecdsa.service
+Wants=hpnsshd-keygen@ed25519.service
+PartOf=hpnsshd.service
