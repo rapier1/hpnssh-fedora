@@ -39,8 +39,8 @@
 # rpm -ba|--rebuild --define "static_openssl 1"
 %{?static_openssl:%global static_libcrypto 1}
 
-%global hpnssh_ver 8.8p1_hpn16v1
-%global hpnssh_rel 3
+%global hpnssh_ver 9.1p1_hpn17v7
+%global hpnssh_rel 1
 
 Summary: An open source implementation of SSH protocol version 2 with HPN extension
 Name: hpnssh
@@ -101,8 +101,6 @@ Patch703: openssh-4.3p2-askpass-grab-info.patch
 Patch707: openssh-7.7p1-redhat.patch
 # warn users for unsupported UsePAM=no (#757545)
 Patch711: openssh-7.8p1-UsePAM-warning.patch
-# make aes-ctr ciphers use EVP engines such as AES-NI from OpenSSL
-Patch712: openssh-6.3p1-ctr-evp-fast.patch
 
 # GSSAPI Key Exchange (RFC 4462 + RFC 8732)
 # from https://github.com/openssh-gsskex/openssh-gsskex/tree/fedora/master
@@ -168,18 +166,16 @@ License: BSD
 Requires: /sbin/nologin
 
 %if ! %{no_gnome_askpass}
+
 %if %{gtk2}
-%echo "GTK2"
 BuildRequires: gtk2-devel
 BuildRequires: libX11-devel
 %endif
 %if %{gtk3}
-%echo "GTK3"
 BuildRequires: gtk3-devel
 BuildRequires: libX11-devel
 %endif
 %if !%{gtk2} && !%{gtk3}
-%echo "DEVEL"
 BuildRequires: gnome-libs-devel
 %endif
 %endif
@@ -196,7 +192,11 @@ BuildRequires: gcc make
 BuildRequires: p11-kit-devel
 BuildRequires: libfido2-devel
 BuildRequires: systemd-rpm-macros
+%if 0%{?rhel} == 7
+BuildRequires: p11-kit
+%else
 Recommends: p11-kit
+%endif
 
 %if %{kerberos5}
 BuildRequires: krb5-devel
@@ -302,7 +302,6 @@ a remote machine. This package contains an X11 passphrase dialog for OpenSSH.
 %patch703 -p1 -b .grab-info
 %patch707 -p1 -b .redhat
 %patch711 -p1 -b .log-usepam-no
-%patch712 -p1 -b .evp-ctr
 # 
 %patch800 -p1 -b .gsskex
 %patch801 -p1 -b .force_krb
@@ -455,19 +454,19 @@ install -m644 %{SOURCE4} $RPM_BUILD_ROOT/etc/pam.d/hpnssh-keycat
 install -m644 %{SOURCE5} $RPM_BUILD_ROOT/etc/sysconfig/hpnsshd
 install -m644 ssh_config_redhat $RPM_BUILD_ROOT%{_sysconfdir}/hpnssh/ssh_config.d/50-redhat.conf
 install -m644 sshd_config_redhat $RPM_BUILD_ROOT%{_sysconfdir}/hpnssh/sshd_config.d/50-redhat.conf
-install -d -m755 $RPM_BUILD_ROOT/%{_unitdir}
-install -m644 %{SOURCE6} $RPM_BUILD_ROOT/%{_unitdir}/hpnsshd@.service
-install -m644 %{SOURCE7} $RPM_BUILD_ROOT/%{_unitdir}/hpnsshd.socket
-install -m644 %{SOURCE8} $RPM_BUILD_ROOT/%{_unitdir}/hpnsshd.service
-install -m644 %{SOURCE9} $RPM_BUILD_ROOT/%{_unitdir}/hpnsshd-keygen@.service
-install -m644 %{SOURCE11} $RPM_BUILD_ROOT/%{_unitdir}/hpnsshd-keygen.target
-install -d -m755 $RPM_BUILD_ROOT/%{_userunitdir}
-install -m644 %{SOURCE12} $RPM_BUILD_ROOT/%{_userunitdir}/hpnssh-agent.service
-install -m744 %{SOURCE10} $RPM_BUILD_ROOT/%{_libexecdir}/hpnssh/hpnsshd-keygen
+install -d -m755 $RPM_BUILD_ROOT%{_unitdir}
+install -m644 %{SOURCE6} $RPM_BUILD_ROOT%{_unitdir}/hpnsshd@.service
+install -m644 %{SOURCE7} $RPM_BUILD_ROOT%{_unitdir}/hpnsshd.socket
+install -m644 %{SOURCE8} $RPM_BUILD_ROOT%{_unitdir}/hpnsshd.service
+install -m644 %{SOURCE9} $RPM_BUILD_ROOT%{_unitdir}/hpnsshd-keygen@.service
+install -m644 %{SOURCE11} $RPM_BUILD_ROOT%{_unitdir}/hpnsshd-keygen.target
+install -d -m755 $RPM_BUILD_ROOT%{_userunitdir}
+install -m644 %{SOURCE12} $RPM_BUILD_ROOT%{_userunitdir}/hpnssh-agent.service
+install -m744 %{SOURCE10} $RPM_BUILD_ROOT%{_libexecdir}/hpnssh/hpnsshd-keygen
 install -m755 contrib/hpnssh-copy-id $RPM_BUILD_ROOT%{_bindir}/
 install contrib/hpnssh-copy-id.1 $RPM_BUILD_ROOT%{_mandir}/man1/
-install -d -m711 ${RPM_BUILD_ROOT}/%{_datadir}/empty.hpnsshd
-install -p -D -m 0644 %{SOURCE13} ${RPM_BUILD_ROOT}/%{_sysuserdir}/hpnsshd.conf
+install -d -m711 $RPM_BUILD_ROOT%{_datadir}/empty.hpnsshd
+install -p -D -m 0644 %{SOURCE13} $RPM_BUILD_ROOT%{_sysuserdir}/hpnsshd.conf
 
 %if ! %{no_gnome_askpass}
 install contrib/gnome-hpnssh-askpass $RPM_BUILD_ROOT%{_libexecdir}/hpnssh/gnome-hpnssh-askpass
